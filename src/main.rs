@@ -1,6 +1,7 @@
 use clap::Parser;
 use fetchers::Error;
 use slog::{info, o, Drain, Logger};
+use tokio_util::sync::CancellationToken;
 
 use crate::fetchers::{dev_to_fetcher::DevToFetcher, Fetcher};
 
@@ -13,8 +14,21 @@ async fn main() -> Result<(), Error> {
     let logger = get_logger(cli.log_level.clone());
 
     info!(logger, "Running fetchers...");
-    let fetcher = DevToFetcher::from_cli(&cli)?;
-    fetcher.run(logger.clone()).await?;
+    let cancel_token = CancellationToken::new();
+
+    let dev_to_fetcher = DevToFetcher::from_cli(&cli, cancel_token.clone())?;
+    let dev_to_fetcher_logger = logger.clone();
+    let dev_to_fetcher_handle =
+        tokio::spawn(async move { dev_to_fetcher.run(dev_to_fetcher_logger).await });
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!(logger, "Received shutdown request...");
+            cancel_token.cancel()
+        }
+    }
+
+    dev_to_fetcher_handle.await.unwrap();
 
     info!(logger, "Finished...");
     Ok(())

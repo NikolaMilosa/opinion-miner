@@ -5,56 +5,95 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use slog::{debug, Logger};
+use tokio_util::sync::CancellationToken;
 
 pub struct DevToFetcher {
     client: Client,
     base_url: Url,
+    per_page: u128,
+    token: CancellationToken,
 }
 
 impl Fetcher for DevToFetcher {
-    async fn run(&self, log: Logger) -> Result<(), Error> {
+    async fn run(&self, log: Logger) {
         let url = self.base_url.join("articles").expect("can join url");
-        let request = self
-            .client
-            .get(url)
-            .query(&[("page", "1"), ("per_page", "10")])
-            .build()
-            .expect("can build a request");
+        let mut num_scrape: u128 = 1;
+        loop {
+            let request = self
+                .client
+                .get(url.clone())
+                .query(&[
+                    ("page", &num_scrape.to_string()),
+                    ("per_page", &self.per_page.to_string()),
+                ])
+                .build()
+                .expect("can build a request");
 
-        debug!(log, "Full request: {:?}", request);
+            debug!(log, "Full request: {:?}", request);
 
-        let response = self
-            .client
-            .execute(request)
-            .await
-            .map_err(|e| Error::FailedScrape(e.to_string()))?;
-
-        debug!(log, "Successfully scraped dev.to");
-
-        let parsed = response
-            .json::<Vec<ArticlePreFetch>>()
-            .await
-            .map_err(|e| Error::Parse(e.to_string()))?;
-
-        for article in parsed {
-            let content = self.fetch_content(article.id, &log).await?;
-
-            let full_article = Article {
-                body_html: content.body_html,
-                description: article.description,
-                id: article.id,
-                title: article.title,
+            let response = tokio::select! {
+                _ = self.token.cancelled() => {
+                    debug!(log, "Received shutdown");
+                    break;
+                }
+                response = self
+                .client
+                .execute(request) => {
+                    match response {
+                        Ok(r) => r,
+                        Err(e) => {
+                            debug!(log, "Failed scrape with error: {:?}", e);
+                            continue;
+                        }
+                    }
+                }
             };
-            println!(
-                "{}",
-                serde_json::to_string(&full_article).expect("can serialize into json")
-            )
-        }
 
-        Ok(())
+            num_scrape += 1;
+
+            debug!(log, "Successfully scraped dev.to");
+
+            let parsed = tokio::select! {
+                _ = self.token.cancelled() => {
+                    debug!(log, "Received shutdown");
+                    break;
+                },
+                parsed = response.json::<Vec<ArticlePreFetch>>() => {
+                    match parsed {
+                        Ok(v) => v,
+                        Err(e) => {
+                            debug!(log, "Failed to decode with error: {:?}", e);
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            for article in parsed {
+                let content = match self.fetch_content(article.id, &log).await {
+                    Ok(c) => c,
+                    Err(Error::Shutdown) => break,
+                    Err(e) => {
+                        debug!(log, "Error while fetching article content: {:?}", e);
+                        continue;
+                    }
+                };
+
+                let full_article = Article {
+                    body_html: content.body_html,
+                    description: article.description,
+                    id: article.id,
+                    title: article.title,
+                };
+                println!(
+                    "{}",
+                    serde_json::to_string(&full_article).expect("can serialize into json")
+                )
+            }
+        }
     }
 
-    fn from_cli(cli: &crate::cli::Cli) -> Result<Self, Error> {
+    fn from_cli(cli: &crate::cli::Cli, token: CancellationToken) -> Result<Self, Error> {
         let mut headers = HeaderMap::new();
         headers.append(
             "accept",
@@ -71,6 +110,8 @@ impl Fetcher for DevToFetcher {
                 .build()
                 .map_err(|e| Error::Invalid(e.to_string()))?,
             base_url: cli.dev_to_url.clone(),
+            per_page: cli.dev_to_page,
+            token,
         })
     }
 }
@@ -91,16 +132,28 @@ impl DevToFetcher {
             "Requesting article with id {} with payload: {:?}", id, request
         );
 
-        let response = self
-            .client
-            .execute(request)
-            .await
-            .map_err(|e| Error::FailedScrape(e.to_string()))?;
+        let response = tokio::select! {
+            _ = self.token.cancelled() => {
+                debug!(log, "Received shutdown");
+                return Err(Error::Shutdown)
+            },
+            response = self.client.execute(request) => {
+                match response {
+                    Ok(v) => v,
+                    Err(e) => return Err(Error::FailedScrape(e.to_string()))
+                }
+            }
+        };
 
-        response
-            .json::<ArticleContent>()
-            .await
-            .map_err(|e| Error::Parse(e.to_string()))
+        tokio::select! {
+            _ = self.token.cancelled() => {
+                debug!(log, "Received shutdown");
+                return Err(Error::Shutdown)
+            }
+            resp = response.json::<ArticleContent>() => {
+                resp.map_err(|e| Error::Parse(e.to_string()))
+            }
+        }
     }
 }
 
