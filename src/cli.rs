@@ -15,4 +15,11 @@ pub struct Cli {
 
     #[clap(long, help = "Dev.to page size", default_value = "30")]
     pub dev_to_page: u128,
+
+    #[clap(
+        long,
+        short,
+        help = "Topic to search for, should be as short and as specific as possible"
+    )]
+    pub term: String,
 }

@@ -12,6 +12,9 @@ mod fetchers;
 async fn main() -> Result<(), Error> {
     let cli = cli::Cli::parse();
     let logger = get_logger(cli.log_level.clone());
+    if cli.term.is_empty() {
+        return Err(Error::Invalid("Search term is mandatory".to_string()));
+    }
 
     info!(logger, "Running fetchers...");
     let cancel_token = CancellationToken::new();

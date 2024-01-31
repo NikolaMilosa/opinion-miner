@@ -12,6 +12,7 @@ pub struct DevToFetcher {
     base_url: Url,
     per_page: u128,
     token: CancellationToken,
+    term: String,
 }
 
 impl Fetcher for DevToFetcher {
@@ -78,12 +79,15 @@ impl Fetcher for DevToFetcher {
                         continue;
                     }
                 };
-
+                if !content.body_html.contains(&self.term) {
+                    continue;
+                }
                 let full_article = Article {
                     body_html: content.body_html,
                     description: article.description,
                     id: article.id,
                     title: article.title,
+                    source: "dev.to".to_string(),
                 };
                 println!(
                     "{}",
@@ -112,6 +116,7 @@ impl Fetcher for DevToFetcher {
             base_url: cli.dev_to_url.clone(),
             per_page: cli.dev_to_page,
             token,
+            term: cli.term.to_string(),
         })
     }
 }
@@ -175,4 +180,5 @@ struct Article {
     title: String,
     description: String,
     body_html: String,
+    source: String,
 }
