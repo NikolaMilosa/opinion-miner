@@ -20,7 +20,7 @@ def ignore_sigint():
 def run_subprocess(command):
     return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=sys.stderr, text=True, preexec_fn=ignore_sigint)
 
-def run_api(stop_event, logger):
+def run_api(stop_event):
     try:
         command = [ "poetry", "run", "modelz-llm", "-m", "bigscience/bloomz-3b", "--device", "cpu" ]
         process = run_subprocess(command)
@@ -30,7 +30,7 @@ def run_api(stop_event, logger):
         process.terminate()
         process.wait()
 
-def run_cli(stop_event, logger, queue):
+def run_cli(stop_event, queue):
     try:
         command = [ "./target/debug/opinion-miner", "--term", "test" ]
         process = run_subprocess(command)
@@ -46,17 +46,17 @@ def run_cli(stop_event, logger, queue):
         process.wait()
 
 
-def process_line(line, bar, ax, fig, logger):
+def process_line(line, bar, ax, fig):
     parsed = json.loads(line)
     ax.set_title(f"Live update: {parsed['id']}")
     plt.draw()
-    plt.pause(0.001)
+    plt.pause(0.01)
 
 def main():
     stop_event = Event()
     logger = get_logger()
     logger.info("Spawning api thread...")
-    api_thread = Thread(target=run_api, args=(stop_event,logger))
+    api_thread = Thread(target=run_api, args=(stop_event,))
     api_thread.start()
 
     # Wait for the API to start
@@ -70,27 +70,31 @@ def main():
                 break
         except Exception:
             continue
-
+    
     logger.info("Configuring plot...")
     fig, ax = plt.subplots()
     bar = ax.bar(0,0)
     ax.set_ylim(0, 10)
     ax.set_xlim(-1,1)
     ax.set_title('Live Update: 0')
-    plt.show(block=False)
+    plt.ion()
+    plt.show()
+    plt.draw()
 
     queue = Queue()
 
-    scrape_thread = Thread(target=run_cli, args=(stop_event, logger, queue))
+    scrape_thread = Thread(target=run_cli, args=(stop_event, queue))
     scrape_thread.start()
 
     while True:
         try:
             line = queue.get()
-            process_line(line, bar, ax, fig, logger)
+            process_line(line, bar, ax, fig)
         except KeyboardInterrupt:
             logger.info("Received interupt...")
+            plt.ioff()
             plt.close('all')
+            plt.pause(0.001)
             break
     
     logger.info("Stopping threads...")
