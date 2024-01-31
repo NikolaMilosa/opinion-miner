@@ -8,6 +8,7 @@ import json
 import matplotlib.pyplot as plt
 from queue import Queue
 import signal
+import communicator
 
 def get_logger():
     FORMAT = "[%(asctime)s] %(levelname)-8s %(message)s"
@@ -46,13 +47,20 @@ def run_cli(stop_event, queue):
         process.wait()
 
 
-def process_line(line, bar, ax, fig):
+def process_line(line, memory, term, bar, figure, axes):
     parsed = json.loads(line)
-    ax.set_title(f"Live update: {parsed['id']}")
-    plt.draw()
-    plt.pause(0.01)
+    output = communicator.find_sentiment(term, parsed['body_html'])
+    memory[output.lower()] += 1
+    for b, count in zip(bar, memory.values()):
+        b.set_hight(count)
+
+    figure.canvas.draw_idle()
+    plt.pause(0.001)
 
 def main():
+    # Missing argparse
+    # Missing checking if the binary is built and building if needed
+
     stop_event = Event()
     logger = get_logger()
     logger.info("Spawning api thread...")
@@ -72,11 +80,19 @@ def main():
             continue
     
     logger.info("Configuring plot...")
-    fig, ax = plt.subplots()
-    bar = ax.bar(0,0)
-    ax.set_ylim(0, 10)
-    ax.set_xlim(-1,1)
-    ax.set_title('Live Update: 0')
+    memory = {
+        "really positive": 0,
+        "positive": 0,
+        "neutral": 0,
+        "negative": 0,
+        "really regative": 0
+    }
+    colors = ['darkgreen', 'lightgreen', 'gray', 'lightcoral', 'darkred']
+    figure, axes = plt.subplots()
+    bar = axes.bar(memory.keys(), [0] * len(memory.keys()), color=colors)
+    axes.set_title('Sentiment Distribution')
+    axes.set_xlabel('Sentiment')
+    axes.set_ylabel('Count')
     plt.ion()
     plt.show()
     plt.draw()
@@ -89,12 +105,12 @@ def main():
     while True:
         try:
             line = queue.get()
-            process_line(line, bar, ax, fig)
+            process_line(line, memory, 'test', bar, figure, axes)
         except KeyboardInterrupt:
             logger.info("Received interupt...")
             plt.ioff()
             plt.close('all')
-            plt.pause(0.001)
+            plt.pause(0.01)
             break
     
     logger.info("Stopping threads...")

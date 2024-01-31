@@ -17,6 +17,7 @@ openai = "^1.10.0"
 requests = "^2.31.0"
 matplotlib = "^3.8.2"
 graceful-shutdown = "^0.1.2"
+bs4 = "^0.0.2"
 
 
 [build-system]
