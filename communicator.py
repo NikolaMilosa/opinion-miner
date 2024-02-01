@@ -1,7 +1,7 @@
 import openai
 from bs4 import BeautifulSoup
 
-def find_sentiment(search_term, text):
+def find_sentiment(search_term, text, sentiments):
     soup = BeautifulSoup(text, 'html.parser')
     sentences = soup.get_text(separator=' ', strip=True).split('.')
     client = openai.OpenAI(
@@ -32,9 +32,16 @@ def find_sentiment(search_term, text):
         completion = client.chat.completions.create(
             model= "any",
             messages= messages)
-        total.append(completion.choices[0].message.content.strip().lower())
+        guess = completion.choices[0].message.content.strip().lower()
 
-        ## Migrate here the code for checking the output and caregorizing as a sentiment
+        decided = 'neutral'
+        for sentiment in sentiments:
+            if sentiment in guess:
+                decided = sentiment
+                break
+
+        total.append(decided)
+
     if len(total) == 0:
         total = ['neutral']
     return max(set(total), key=total.count)
