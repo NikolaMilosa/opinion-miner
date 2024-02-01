@@ -10,9 +10,11 @@ def find_sentiment(search_term, text):
     )
     total= []
     for i in range(0, len(sentences), 3):
+        if not any([search_term in sentence for sentence in sentences[i:i+2]]):
+            continue
         messages = [{
                     "role": "user",
-                    "content": f"""You are a research scientist and your role is to devise the sentiment of a search term in a given text. The search term will be a couple of words and the text will be scraped text. The sentiment values that you have to return can be one of 'Really Positive', 'Positive', 'Neutral' 'Negative', 'Really Negative'. You will be sent a lot of sentences and when you receive a message 'Decide' you should return one work from return options.
+                    "content": f"""You are a research scientist and your role is to devise the sentiment of a search term in a given text. The search term will be a couple of words and the text will be scraped text. The sentiment values that you have to ONLY return can be one of 'Really Positive', 'Positive', 'Neutral' 'Negative', 'Really Negative'. You will be sent a lot of sentences and when you receive a message 'Decide' you should return one work from return options.
                     For example: 
                     user:'I use Python somewhat regularly, and overall I consider it to be a very good language. Nonetheless, no language is perfect.'
                     user: 'Decide'
@@ -31,5 +33,9 @@ def find_sentiment(search_term, text):
             model= "any",
             messages= messages)
         total.append(completion.choices[0].message.content.strip().lower())
+
+        ## Migrate here the code for checking the output and caregorizing as a sentiment
+    if len(total) == 0:
+        total = ['neutral']
     return max(set(total), key=total.count)
 
